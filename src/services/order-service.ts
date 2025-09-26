@@ -11,6 +11,7 @@ import type {
 import { OrderRepository } from '../repositories/order-repository';
 import { DeliveryClient } from '../clients/delivery-client';
 import { ProductAvailabilityService } from './product-availability-service';
+import { OutboundEventService } from './outbound-event-service';
 
 /**
  * Minimal lifecycle state machine that documents the only forward transitions the
@@ -75,6 +76,7 @@ export class OrderService {
     private readonly repository: OrderRepository,
     private readonly deliveryClient: DeliveryClient,
     private readonly availabilityService: ProductAvailabilityService,
+    private readonly outboundEventService: OutboundEventService,
     private readonly logger: FastifyBaseLogger
   ) {}
 
@@ -136,7 +138,8 @@ export class OrderService {
     };
 
     await this.repository.create(order);
-    this.scheduleShipment(order);
+    // Fan the work out to asynchronous workers so HTTP clients do not wait on Delivery.
+    await this.outboundEventService.publishOrderCreated(order);
     return { order, created: true };
   }
 
@@ -167,6 +170,42 @@ export class OrderService {
    * whether the same event already landed, treating the retry as successful when it has.
    */
   async applyStatusUpdate(orderId: string, input: StatusUpdateInput): Promise<OrderRecord> {
+    const prepared = await this.prepareStatusUpdate(orderId, input);
+    if (!prepared.event) {
+      return prepared.order;
+    }
+
+    const updated = await this.repository.appendStatusEvent(
+      orderId,
+      prepared.event,
+      prepared.event.status,
+      prepared.order.version
+    );
+
+    if (!updated) {
+      const latest = await this.repository.findById(orderId);
+      if (latest && latest.statusHistory.some((item) => item.eventId === input.eventId)) {
+        // Concurrent writer won the race but processed the same event; treat as success.
+        return latest;
+      }
+
+      throw new StatusConflictError('Concurrent modification detected while updating status');
+    }
+
+    return updated;
+  }
+
+  async validateStatusUpdate(
+    orderId: string,
+    input: StatusUpdateInput
+  ): Promise<{ order: OrderRecord; event?: StatusEvent }> {
+    return this.prepareStatusUpdate(orderId, input);
+  }
+
+  private async prepareStatusUpdate(
+    orderId: string,
+    input: StatusUpdateInput
+  ): Promise<{ order: OrderRecord; event?: StatusEvent }> {
     const order = await this.repository.findById(orderId);
     if (!order) {
       throw new OrderNotFoundError(orderId);
@@ -174,7 +213,7 @@ export class OrderService {
 
     if (order.statusHistory.some((event) => event.eventId === input.eventId)) {
       // Delivery retries send the same event id; short-circuit to keep handler idempotent.
-      return order;
+      return { order };
     }
 
     if (!this.canTransition(order.status, input.status)) {
@@ -190,24 +229,7 @@ export class OrderService {
       at: canonicalTimestamp
     };
 
-    const updated = await this.repository.appendStatusEvent(
-      orderId,
-      event,
-      input.status,
-      order.version
-    );
-
-    if (!updated) {
-      const latest = await this.repository.findById(orderId);
-      if (latest && latest.statusHistory.some((item) => item.eventId === input.eventId)) {
-        // Concurrent writer won the race but processed the same event; treat as success.
-        return latest;
-      }
-
-      throw new StatusConflictError('Concurrent modification detected while updating status');
-    }
-
-    return updated;
+    return { order, event };
   }
 
   /**
@@ -225,24 +247,30 @@ export class OrderService {
   }
 
   /**
-   * Schedules shipment creation with the Delivery mock in a fire-and-forget manner.
+   * Processes the asynchronous order-created event by orchestrating shipment creation.
    *
-   * Errors are logged for visibility but do not bubble to clients; retries are handled
-   * by the DeliveryClient using exponential backoff.
+   * The method resolves the latest order snapshot, skips work when shipment metadata already
+   * exists, and surfaces errors so the queue consumer can retry with backoff.
    */
-  private scheduleShipment(order: OrderRecord): void {
-    // Fire-and-forget keeps client latency low while still wiring shipment creation.
-    void this.deliveryClient
-      .createShipment(order)
-      .then(async (response) => {
-        const metadata = this.deliveryClient.buildShipmentMetadata(response);
-        await this.repository.updateShipmentMetadata(order.id, metadata);
-      })
-      .catch((error) => {
-        this.logger.error(
-          { err: error, orderId: order.id },
-          'Failed to create shipment with Delivery service'
-        );
-      });
+  async handleOrderCreatedEvent(orderId: string): Promise<void> {
+    const order = await this.repository.findById(orderId);
+    if (!order) {
+      this.logger.warn({ orderId }, 'Order-created event received for missing order');
+      return;
+    }
+
+    if (order.shipment?.shipmentId) {
+      this.logger.debug({ orderId }, 'Order already has shipment metadata, skipping');
+      return;
+    }
+
+    try {
+      const response = await this.deliveryClient.createShipment(order);
+      const metadata = this.deliveryClient.buildShipmentMetadata(response);
+      await this.repository.updateShipmentMetadata(order.id, metadata);
+    } catch (error) {
+      this.logger.error({ err: error, orderId }, 'Failed to create shipment with Delivery service');
+      throw error;
+    }
   }
 }

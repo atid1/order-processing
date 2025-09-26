@@ -1,0 +1,51 @@
+services:
+  sales-service:
+    build: .
+    depends_on:
+      - mongodb
+      - delivery-mock
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB_NAME: sales
+      DELIVERY_BASE_URL: http://delivery-mock:4000
+      DELIVERY_TIMEOUT_MS: 5000
+      DELIVERY_MAX_RETRIES: 3
+      DELIVERY_RETRY_BASE_DELAY_MS: 200
+      RATE_LIMIT_STORE_PROVIDER: ${RATE_LIMIT_STORE_PROVIDER:-memory}
+      RATE_LIMIT_REDIS_HOST: ${RATE_LIMIT_REDIS_HOST:-redis}
+      RATE_LIMIT_REDIS_PORT: ${RATE_LIMIT_REDIS_PORT:-6379}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: sales
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  delivery-mock:
+    build: ./delivery-mock
+    environment:
+      PORT: 4000
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    profiles:
+      - redis-rate-limit
+
+volumes:
+  mongo-data:
