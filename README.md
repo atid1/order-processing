@@ -5,42 +5,48 @@ The goal is to demonstrate a production-ready design of the Sales side, while mo
 
 ## Scope
 
-## Implemented
-	•	Sales service exposing REST APIs to create and track orders.
-	•	Order validation, stubbed availability check, persistence, and idempotent creation.
-	•	Delivery initiation via a mocked Delivery service.
-	•	Delivery status callbacks (SHIPPED, DELIVERED) handled idempotently.
-	•	Ready-to-deploy Docker.
-	•	Design document included (DESIGN.md).
+### Implemented
+- Sales service exposing REST APIs to create and track orders.
+- Order validation, stubbed availability check, persistence, and idempotent creation.
+- Delivery initiation via a mocked Delivery service.
+- Delivery status callbacks (`SHIPPED`, `DELIVERED`) handled idempotently.
+- Ready-to-deploy Docker setup plus perf benchmarking script.
+- Design documentation (`DESIGN.md` and `docs/sales-service-design.pdf`).
 
-## Out of Scope
-	•	Full Delivery implementation (replaced by mocks).
-	•	Payments, inventory/warehouse logistics.
-	•	Security (authentication/authorization).
-	•	Observability (metrics, tracing dashboards).
+### Out of scope
+- Full Delivery implementation (replaced by mocks).
+- Payments, inventory/warehouse logistics.
+- Security (authentication/authorization).
+- Observability (metrics, tracing dashboards).
 
 ## Architecture Overview
-	•	Sales Service: Node.js (TypeScript, Fastify – a high-performance Node.js web framework), MongoDB for persistence.
-	•	Delivery Mock: lightweight stub to simulate shipment creation and status callbacks.
-	•	Rate Limit Plugin: Fastify wrapper around `@fastify/rate-limit` providing global and endpoint-specific throttling.
-	•	Flow:
-	1.	Client → Sales: POST /v1/orders
-	2.	Sales validates input, persists the order (PENDING_SHIPMENT), and publishes an order-created event to the queue
-	3.	Worker consumes the order-created queue, calls the Delivery mock, and stores shipment metadata
-	4.	Delivery Mock → Sales: status callbacks enqueued on the status queue and processed asynchronously
-	5.	Sales reflects updates in order state
+- **Sales service**: Node.js (TypeScript, Fastify), MongoDB for persistence, queue-backed shipment orchestration, and optional Redis-backed rate limiting.
+- **Delivery mock**: lightweight Fastify stub to simulate shipment creation and callbacks.
+- **Rate limit plugin**: wraps `@fastify/rate-limit`, defaulting to in-memory counters with optional Redis store for distributed limits.
+
+High level flow:
+1. Client → Sales: `POST /v1/orders`.
+2. Sales validates input, persists `PENDING_SHIPMENT`, publishes an order-created event.
+3. Worker consumes the queue, calls the Delivery mock, stores shipment metadata.
+4. Delivery mock → Sales: status callbacks enqueued on the status queue.
+5. Status worker applies lifecycle changes asynchronously.
 
 ## APIs
 
 ## Sales – Public
-	•	POST /v1/orders – Create a new order (supports Idempotency-Key).
-	•	GET /v1/orders/{orderId} – Retrieve order details.
+- `POST /v1/orders` – Create a new order (supports `Idempotency-Key`).
+- `GET /v1/orders/{orderId}` – Retrieve order details.
 
 ## Sales – Private (Delivery → Sales callbacks)
-	•	POST /v1/orders/{orderId}/status – Delivery status updates.
+- `POST /v1/orders/{orderId}/status` – Delivery status updates.
 
 ## Delivery Mock (Sales → Delivery)
-	•	POST /v1/shipments – Initiate shipment (mocked).
+- `POST /v1/shipments` – Initiate shipment (mocked).
+
+## Debug helpers (development only)
+- `GET /debug/queues/order-created` – Inspect pending order-created messages.
+- `DELETE /debug/queues/order-created` – Clear the order-created queue.
+- `POST /debug/queues/order-status/process` – Drain the status queue using the in-memory worker.
 
 ## Data Model
 
@@ -75,11 +81,18 @@ type Order = {
 # Install dependencies
 npm install
 
-# Start MongoDB with Docker Compose
+# Option A: run shared dependencies only (Sales service runs on host)
+docker-compose up -d mongodb delivery-mock
+
+# Start the Sales service in dev mode (set AUTO_CONSUME_STATUS_QUEUE=true to auto-drain queues)
+npm run dev
+# (Skip this step if you're using Option B.)
+
+# Option B: run the full stack in containers (Sales + Mongo + Delivery mock)
 docker-compose up -d
 
-# Run in dev mode (set AUTO_CONSUME_STATUS_QUEUE=true to auto-drain queues)
-npm run dev
+# Optional: include Redis for distributed rate limiting
+docker-compose --profile redis-rate-limit up -d
 
 # Run tests (Vitest + MongoMemoryServer)
 npm test
@@ -267,7 +280,7 @@ curl -X POST http://localhost:3000/debug/queues/order-status/process | jq
 ```
 
 ## Deliverables
-	•	Production-shaped Sales service with mocks for Delivery.
-	•	Design document (DESIGN.md).
-	•	Docker-ready setup (Dockerfile, docker-compose.yml).
-	•	Automated tests (unit + integration).
+- Production-shaped Sales service with mocks for Delivery.
+- Design docs: `DESIGN.md` and `docs/sales-service-design.pdf`.
+- Docker-ready setup (`Dockerfile`, `docker-compose.yml`).
+- Automated tests (integration + debug helpers).
