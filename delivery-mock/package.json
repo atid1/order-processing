@@ -1,0 +1,13 @@
+{
+  "name": "delivery-mock",
+  "version": "0.1.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "fastify": "^4.26.2",
+    "nanoid": "^4.0.2"
+  }
+}
