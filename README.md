@@ -11,7 +11,7 @@ The goal is to demonstrate a production-ready design of the Sales side, while mo
 - Delivery initiation via a mocked Delivery service.
 - Delivery status callbacks (`SHIPPED`, `DELIVERED`) handled idempotently.
 - Ready-to-deploy Docker setup plus perf benchmarking script.
-- Design documentation (`DESIGN.md` and `docs/sales-service-design.pdf`).
+- Design documentation (`DESIGN.md`).
 
 ### Out of scope
 - Full Delivery implementation (replaced by mocks).
@@ -45,8 +45,11 @@ High level flow:
 
 ## Debug helpers (development only)
 - `GET /debug/queues/order-created` – Inspect pending order-created messages.
-- `DELETE /debug/queues/order-created` – Clear the order-created queue.
+- `GET /debug/queues/order-status` – Inspect pending order-status messages.
+- `POST /debug/queues/order-created/process` – Drain the order-created queue using the in-memory worker.
 - `POST /debug/queues/order-status/process` – Drain the status queue using the in-memory worker.
+- `DELETE /debug/queues/order-created` – Clear only the order-created queue.
+- `DELETE /debug/queues/order-status` – Clear only the order-status queue.
 
 ## Data Model
 
@@ -261,26 +264,44 @@ curl -i http://localhost:4000/v1/shipments \
       }'
 ```
 
-### 9. Inspect the In-Memory Queue (Debug)
+### 9. Inspect the Order-Created Queue (Debug)
 
 ```bash
 curl -s http://localhost:3000/debug/queues/order-created | jq
 ```
 
-### 10. Clear the In-Memory Queue (Debug)
+### 10. Process the Order-Created Queue (Debug Worker)
 
 ```bash
-curl -X DELETE http://localhost:3000/debug/queues/order-created
+curl -X POST http://localhost:3000/debug/queues/order-created/process | jq
 ```
 
-### 11. Process the Status Queue (Debug Worker)
+### 11. Inspect the Order-Status Queue (Debug)
+
+```bash
+curl -s http://localhost:3000/debug/queues/order-status | jq
+```
+
+### 12. Process the Order-Status Queue (Debug Worker)
 
 ```bash
 curl -X POST http://localhost:3000/debug/queues/order-status/process | jq
 ```
 
+### 13. Clear the Order-Created Queue (Debug)
+
+```bash
+curl -X DELETE http://localhost:3000/debug/queues/order-created
+```
+
+### 14. Clear the Order-Status Queue (Debug)
+
+```bash
+curl -X DELETE http://localhost:3000/debug/queues/order-status
+```
+
 ## Deliverables
 - Production-shaped Sales service with mocks for Delivery.
-- Design docs: `DESIGN.md` and `docs/sales-service-design.pdf`.
+- Design doc: `DESIGN.md`.
 - Docker-ready setup (`Dockerfile`, `docker-compose.yml`).
 - Automated tests (integration + debug helpers).

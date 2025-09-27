@@ -27,7 +27,7 @@
 - **DeliveryClient** – outbound HTTP client with exponential backoff + jitter retries for `POST /v1/shipments`.
 - **OutboundEventService** – publishes domain events (e.g., `ORDER_CREATED`) to a queue abstraction; defaults to an in-memory SQS mock for this exercise.
 - **Queue Consumers (debug)** – in-memory workers used during development/tests to drain both the order-created and status-update queues so shipment creation and status transitions happen off the request path.
-- **Debug Routes** – expose the in-memory queue store for inspection (`GET/DELETE /debug/queues/order-created`) and simulate worker consumption (`POST /debug/queues/order-status/process`).
+- **Debug Routes** – expose the in-memory queue store for inspection/maintenance (`GET /debug/queues/order-created`, `GET /debug/queues/order-status`, `DELETE /debug/queues/order-created`, `DELETE /debug/queues/order-status`) and simulate worker consumption (`POST /debug/queues/order-created/process`, `POST /debug/queues/order-status/process`).
 - **Queue Workers (dev helper)** – optional in-process pollers enabled via `AUTO_CONSUME_STATUS_QUEUE=true` to automatically drain the order-created and status queues during local development.
 - **Delivery Mock** – lightweight Fastify application (separate container) returning deterministic shipment IDs for local/dev workflows.
 - **Rate Limit Plugin** – wraps `@fastify/rate-limit` to enforce global throttling and route-specific limits with structured logging; supports in-memory or Redis-backed counters.

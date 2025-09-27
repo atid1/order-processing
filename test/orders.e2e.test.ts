@@ -265,19 +265,44 @@ describe('Sales Orders API', () => {
     expect(deliveredDoc?.status).toBe('DELIVERED');
   });
 
-  it('allows clearing the mock queue via debug endpoint', async () => {
+  it('exposes debug queues separately and allows clearing each in isolation', async () => {
     if (skipIfUnavailable()) return;
     const server = getApp();
-    await createOrder(server, 'idem-clear', buildPayload());
-    const beforeClear = await server.inject({ method: 'GET', url: '/debug/queues/order-created' });
-    expect(beforeClear.json()).toHaveLength(1);
+    const orderId = (await createOrder(server, 'idem-queues', buildPayload())).json<{ orderId: string }>().orderId;
 
-    const clearResponse = await server.inject({ method: 'DELETE', url: '/debug/queues/order-created' });
-    expect(clearResponse.statusCode).toBe(200);
-    expect(clearResponse.json()).toEqual({ cleared: true });
+    const statusEnqueue = await server.inject({
+      method: 'POST',
+      url: `/v1/orders/${orderId}/status`,
+      headers: { 'idempotency-key': 'event-debug-1' },
+      payload: { status: 'SHIPPED', at: new Date().toISOString() }
+    });
+    expect(statusEnqueue.statusCode).toBe(202);
 
-    const afterClear = await server.inject({ method: 'GET', url: '/debug/queues/order-created' });
-    expect(afterClear.json()).toHaveLength(0);
+    const createdQueue = await server.inject({ method: 'GET', url: '/debug/queues/order-created' });
+    const statusQueue = await server.inject({ method: 'GET', url: '/debug/queues/order-status' });
+
+    expect(createdQueue.statusCode).toBe(200);
+    expect(statusQueue.statusCode).toBe(200);
+    expect(createdQueue.json()).toMatchObject([
+      expect.objectContaining({ queueName: server.config.events.orderCreatedQueue })
+    ]);
+    expect(statusQueue.json()).toMatchObject([
+      expect.objectContaining({ queueName: server.config.events.orderStatusQueue })
+    ]);
+
+    const clearCreated = await server.inject({ method: 'DELETE', url: '/debug/queues/order-created' });
+    expect(clearCreated.statusCode).toBe(200);
+    expect(clearCreated.json()).toEqual({ cleared: true });
+    const createdAfterClear = await server.inject({ method: 'GET', url: '/debug/queues/order-created' });
+    const statusAfterCreatedClear = await server.inject({ method: 'GET', url: '/debug/queues/order-status' });
+    expect(createdAfterClear.json()).toHaveLength(0);
+    expect(statusAfterCreatedClear.json()).toHaveLength(1);
+
+    const clearStatus = await server.inject({ method: 'DELETE', url: '/debug/queues/order-status' });
+    expect(clearStatus.statusCode).toBe(200);
+    expect(clearStatus.json()).toEqual({ cleared: true });
+    const statusAfterClear = await server.inject({ method: 'GET', url: '/debug/queues/order-status' });
+    expect(statusAfterClear.json()).toHaveLength(0);
   });
 });
 

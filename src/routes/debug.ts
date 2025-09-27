@@ -4,10 +4,29 @@ import type { FastifyPluginAsync } from 'fastify';
  * Debug-only routes that expose internal mocks (e.g., in-memory queue store) for manual testing.
  */
 const debugRoutes: FastifyPluginAsync = async (fastify) => {
-  fastify.get('/queues/order-created', async () => fastify.mockQueueStore.all());
+  fastify.get('/queues/order-created', async () => {
+    const orderCreatedQueue = fastify.config.events.orderCreatedQueue;
+    return fastify.mockQueueStore
+      .all()
+      .filter((message) => message.queueName === orderCreatedQueue);
+  });
+
+  fastify.get('/queues/order-status', async () => {
+    const orderStatusQueue = fastify.config.events.orderStatusQueue;
+    return fastify.mockQueueStore
+      .all()
+      .filter((message) => message.queueName === orderStatusQueue);
+  });
 
   fastify.delete('/queues/order-created', async () => {
-    fastify.mockQueueStore.clear();
+    const orderCreatedQueue = fastify.config.events.orderCreatedQueue;
+    fastify.mockQueueStore.clearQueue(orderCreatedQueue);
+    return { cleared: true };
+  });
+
+  fastify.delete('/queues/order-status', async () => {
+    const orderStatusQueue = fastify.config.events.orderStatusQueue;
+    fastify.mockQueueStore.clearQueue(orderStatusQueue);
     return { cleared: true };
   });
 

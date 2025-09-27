@@ -30,6 +30,10 @@ export class InMemoryQueueStore {
     this.messages = [];
   }
 
+  clearQueue(queueName: string): void {
+    this.messages = this.messages.filter((message) => message.queueName !== queueName);
+  }
+
   dequeue(predicate: (message: QueueMessage) => boolean): QueueMessage | undefined {
     const idx = this.messages.findIndex(predicate);
     if (idx === -1) {
