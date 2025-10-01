@@ -240,14 +240,18 @@ describe('Sales Orders API', () => {
     const duplicateProcessed = await processStatusQueue(server);
     expect(duplicateProcessed.filter((msg) => msg.queueName === orderStatusQueue)).toHaveLength(0);
 
-    const invalid = await server.inject({
+    const nonMonotonic = await server.inject({
       method: 'POST',
       url: `/v1/orders/${orderId}/status`,
       headers: { 'idempotency-key': 'event-bad' },
       // Replaying SHIPPED with a new event id should violate the monotonic progression rule.
       payload: { status: 'SHIPPED', at: new Date().toISOString() }
     });
-    expect(invalid.statusCode).toBe(409);
+    expect(nonMonotonic.statusCode).toBe(200);
+    expect(JSON.parse(nonMonotonic.body)).toEqual({ accepted: false, duplicate: true });
+
+    const afterNonMonotonic = await processStatusQueue(server);
+    expect(afterNonMonotonic.filter((msg) => msg.queueName === orderStatusQueue)).toHaveLength(0);
 
     const delivered = await server.inject({
       method: 'POST',

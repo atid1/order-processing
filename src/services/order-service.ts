@@ -78,7 +78,7 @@ export class OrderService {
     private readonly availabilityService: ProductAvailabilityService,
     private readonly outboundEventService: OutboundEventService,
     private readonly logger: FastifyBaseLogger
-  ) {}
+  ) { }
 
   /**
    * Process an inbound order create request.
@@ -165,9 +165,9 @@ export class OrderService {
    * @param input - Delivery supplied status payload plus event id.
    * @returns The authoritative order document after the update.
    *
-   * Duplicate event ids return early, invalid transitions raise a conflict, and write
-   * races are resolved via optimistic locking. When a race is lost we re-fetch to see
-   * whether the same event already landed, treating the retry as successful when it has.
+   * Duplicate or stale events return early, non-monotonic transitions are ignored, and write
+   * races are resolved via optimistic locking. When a race is lost we re-fetch to see whether
+   * the same event already landed, treating the retry as successful when it has.
    */
   async applyStatusUpdate(orderId: string, input: StatusUpdateInput): Promise<OrderRecord> {
     const prepared = await this.prepareStatusUpdate(orderId, input);
@@ -216,13 +216,26 @@ export class OrderService {
       return { order };
     }
 
-    if (!this.canTransition(order.status, input.status)) {
-      throw new StatusConflictError(
-        `Invalid status transition from ${order.status} to ${input.status}`
-      );
+    // Normalize and compare timestamps using epoch milliseconds for robust ordering
+    const incomingAtDate = new Date(input.at);
+    const canonicalTimestamp = incomingAtDate.toISOString();
+    const lastApplied = order.statusHistory[order.statusHistory.length - 1];
+    if (lastApplied) {
+      const lastAppliedMs = Date.parse(lastApplied.at);
+      if (incomingAtDate.getTime() <= lastAppliedMs) {
+        this.logger.debug({ orderId, eventId: input.eventId }, 'Stale status event ignored');
+        return { order };
+      }
     }
 
-    const canonicalTimestamp = new Date(input.at).toISOString();
+    if (!this.canTransition(order.status, input.status)) {
+      this.logger.debug(
+        { orderId, from: order.status, to: input.status, eventId: input.eventId },
+        'Ignoring non-monotonic status transition'
+      );
+      return { order };
+    }
+
     const event: StatusEvent = {
       eventId: input.eventId,
       status: input.status,
@@ -235,9 +248,8 @@ export class OrderService {
   /**
    * Checks whether an order can move from `current` to `next`.
    *
-   * Returning a boolean keeps the calling code expressive (an invalid transition
-   * results in a specific StatusConflictError) while keeping the state machine
-   * definition centralized above.
+   * Returning a boolean keeps the calling code expressive; callers treat invalid transitions
+   * as a no-op to preserve idempotency while leaving these state rules centralized here.
    */
   private canTransition(current: OrderStatus, next: OrderStatus): boolean {
     if (current === next) {

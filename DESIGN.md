@@ -129,8 +129,8 @@ Indexes:
 ### `POST /v1/orders/{orderId}/status`
 - **Headers**: `Idempotency-Key` (eventId).
 - **Body**: `{ status: "SHIPPED"|"DELIVERED", at: ISO-8601 string }`.
-- **Response**: `202` when the event is accepted for asynchronous processing; `200` with `{ accepted: false, duplicate: true }` when the event was already applied.
-- **Errors**: `404` (unknown order), `409` (invalid transition).
+- **Response**: `202` when the event is accepted for asynchronous processing; `200` with `{ accepted: false, duplicate: true }` when the event was already applied or ignored as stale/non-monotonic.
+- **Errors**: `404` (unknown order), `409` (optimistic-lock conflict only).
 
 ### Outbound `POST /v1/shipments` (Delivery Mock)
 - **Request**: `{ orderId, customerId, totalAmount, items[] }` with `Idempotency-Key` header equal to order `requestId`.
@@ -139,7 +139,7 @@ Indexes:
 
 ## Idempotency & Consistency
 - **Create**: Existing record located by `requestId`. Matching `payloadHash` returns the stored order; mismatched hash → `409 Conflict`. Initial status event stored with unique synthetic `eventId`.
-- **Status updates**: `Idempotency-Key` is treated as `eventId`. Updates short-circuit if the event already exists in `statusHistory`. Transitions must follow `PENDING_SHIPMENT → SHIPPED → DELIVERED`; monotonicity enforced in service layer. Writes rely on `version` to detect lost updates; on conflict we refetch to confirm dedupe before returning error.
+- **Status updates**: `Idempotency-Key` is treated as `eventId`. Updates short-circuit if the event already exists in `statusHistory`. Transitions must follow `PENDING_SHIPMENT → SHIPPED → DELIVERED`; stale timestamps or non-monotonic statuses are ignored as no-ops to preserve idempotency. Writes rely on `version` to detect lost updates; on conflict we refetch to confirm dedupe before returning error.
 - **Shipment scheduling**: Driven by the order-created queue. Workers fetch the latest order snapshot, skip when metadata already exists, and retry on Delivery failures before persisting shipment details (no version bump).
 
 ## Retry & Backoff Strategy
