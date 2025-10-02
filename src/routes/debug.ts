@@ -11,11 +11,25 @@ const debugRoutes: FastifyPluginAsync = async (fastify) => {
       .filter((message) => message.queueName === orderCreatedQueue);
   });
 
+  fastify.get('/queues/order-created-dlq', async () => {
+    const orderCreatedDlq = fastify.config.events.orderCreatedDeadLetterQueue;
+    return fastify.mockQueueStore
+      .all()
+      .filter((message) => message.queueName === orderCreatedDlq);
+  });
+
   fastify.get('/queues/order-status', async () => {
     const orderStatusQueue = fastify.config.events.orderStatusQueue;
     return fastify.mockQueueStore
       .all()
       .filter((message) => message.queueName === orderStatusQueue);
+  });
+
+  fastify.get('/queues/order-status-dlq', async () => {
+    const orderStatusDlq = fastify.config.events.orderStatusDeadLetterQueue;
+    return fastify.mockQueueStore
+      .all()
+      .filter((message) => message.queueName === orderStatusDlq);
   });
 
   fastify.delete('/queues/order-created', async () => {
@@ -24,9 +38,21 @@ const debugRoutes: FastifyPluginAsync = async (fastify) => {
     return { cleared: true };
   });
 
+  fastify.delete('/queues/order-created-dlq', async () => {
+    const orderCreatedDlq = fastify.config.events.orderCreatedDeadLetterQueue;
+    fastify.mockQueueStore.clearQueue(orderCreatedDlq);
+    return { cleared: true };
+  });
+
   fastify.delete('/queues/order-status', async () => {
     const orderStatusQueue = fastify.config.events.orderStatusQueue;
     fastify.mockQueueStore.clearQueue(orderStatusQueue);
+    return { cleared: true };
+  });
+
+  fastify.delete('/queues/order-status-dlq', async () => {
+    const orderStatusDlq = fastify.config.events.orderStatusDeadLetterQueue;
+    fastify.mockQueueStore.clearQueue(orderStatusDlq);
     return { cleared: true };
   });
 

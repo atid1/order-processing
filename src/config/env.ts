@@ -71,7 +71,10 @@ export interface AppConfig {
   rateLimit: RateLimitConfig;
   events: {
     orderCreatedQueue: string;
+    orderCreatedDeadLetterQueue: string;
     orderStatusQueue: string;
+    orderStatusDeadLetterQueue: string;
+    maxDeliveries: number;
   };
   autoConsumeStatusQueue: boolean;
 }
@@ -87,7 +90,10 @@ interface RawEnv {
   DELIVERY_MAX_RETRIES: number;
   DELIVERY_RETRY_BASE_DELAY_MS: number;
   ORDER_CREATED_QUEUE: string;
+  ORDER_CREATED_DLQ: string;
   ORDER_STATUS_QUEUE: string;
+  ORDER_STATUS_DLQ: string;
+  QUEUE_MAX_DELIVERIES: number;
   AUTO_CONSUME_STATUS_QUEUE: boolean;
   RATE_LIMIT_ENABLED: boolean;
   RATE_LIMIT_GLOBAL_MAX: number;
@@ -126,7 +132,10 @@ export function loadConfig(): AppConfig {
       DELIVERY_MAX_RETRIES: { type: 'number', default: 3 },
       DELIVERY_RETRY_BASE_DELAY_MS: { type: 'number', default: 200 },
       ORDER_CREATED_QUEUE: { type: 'string', default: 'order-created-events' },
+      ORDER_CREATED_DLQ: { type: 'string', default: 'order-created-events-dlq' },
       ORDER_STATUS_QUEUE: { type: 'string', default: 'order-status-events' },
+      ORDER_STATUS_DLQ: { type: 'string', default: 'order-status-events-dlq' },
+      QUEUE_MAX_DELIVERIES: { type: 'number', default: 5 },
       AUTO_CONSUME_STATUS_QUEUE: { type: 'boolean', default: false },
       RATE_LIMIT_ENABLED: { type: 'boolean', default: true },
       RATE_LIMIT_GLOBAL_MAX: { type: 'number', default: 1000 },
@@ -204,7 +213,10 @@ export function loadConfig(): AppConfig {
     },
     events: {
       orderCreatedQueue: env.ORDER_CREATED_QUEUE,
-      orderStatusQueue: env.ORDER_STATUS_QUEUE
+      orderCreatedDeadLetterQueue: env.ORDER_CREATED_DLQ,
+      orderStatusQueue: env.ORDER_STATUS_QUEUE,
+      orderStatusDeadLetterQueue: env.ORDER_STATUS_DLQ,
+      maxDeliveries: env.QUEUE_MAX_DELIVERIES
     },
     autoConsumeStatusQueue: env.AUTO_CONSUME_STATUS_QUEUE
   };

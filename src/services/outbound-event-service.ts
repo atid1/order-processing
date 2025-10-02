@@ -4,6 +4,10 @@ export interface QueueMessage {
   queueName: string;
   payload: unknown;
   sentAt: string;
+  attempts: number;
+  lastError?: string;
+  lastFailedAt?: string;
+  deadLetteredAt?: string;
   processedAt?: string;
 }
 
@@ -51,7 +55,8 @@ export class InMemoryQueueClient implements QueueClient {
     this.store.enqueue({
       queueName,
       payload,
-      sentAt: new Date().toISOString()
+      sentAt: new Date().toISOString(),
+      attempts: 0
     });
   }
 }
@@ -116,7 +121,11 @@ export interface StatusUpdateQueuePayload {
 export class InMemoryQueueConsumer {
   constructor(
     private readonly store: InMemoryQueueStore,
-    private readonly handler: (message: QueueMessage) => Promise<void>
+    private readonly handler: (message: QueueMessage) => Promise<void>,
+    private readonly options: {
+      maxDeliveries: number;
+      deadLetterQueue: string;
+    }
   ) {}
 
   async consumeOne(queueName: string): Promise<QueueMessage | undefined> {
@@ -128,11 +137,34 @@ export class InMemoryQueueConsumer {
     try {
       await this.handler(message);
     } catch (error) {
-      this.store.enqueue(message);
+      const attempts = (message.attempts ?? 0) + 1;
+      const now = new Date().toISOString();
+      const failure = {
+        ...message,
+        attempts,
+        lastError: error instanceof Error ? error.message : String(error),
+        lastFailedAt: now
+      } satisfies QueueMessage;
+
+      if (attempts >= this.options.maxDeliveries) {
+        this.store.enqueue({
+          ...failure,
+          queueName: this.options.deadLetterQueue,
+          deadLetteredAt: now
+        });
+      } else {
+        this.store.enqueue({
+          ...failure,
+          queueName,
+          sentAt: message.sentAt
+        });
+      }
       throw error;
     }
+    const attempts = (message.attempts ?? 0) + 1;
     return {
       ...message,
+      attempts,
       processedAt: new Date().toISOString()
     };
   }

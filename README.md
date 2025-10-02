@@ -45,11 +45,20 @@ High level flow:
 
 ## Debug helpers (development only)
 - `GET /debug/queues/order-created` – Inspect pending order-created messages.
+- `GET /debug/queues/order-created-dlq` – Inspect order-created messages that exhausted retries.
 - `GET /debug/queues/order-status` – Inspect pending order-status messages.
+- `GET /debug/queues/order-status-dlq` – Inspect order-status messages that exhausted retries.
 - `POST /debug/queues/order-created/process` – Drain the order-created queue using the in-memory worker.
 - `POST /debug/queues/order-status/process` – Drain the status queue using the in-memory worker.
 - `DELETE /debug/queues/order-created` – Clear only the order-created queue.
+- `DELETE /debug/queues/order-created-dlq` – Clear the order-created dead-letter queue.
 - `DELETE /debug/queues/order-status` – Clear only the order-status queue.
+- `DELETE /debug/queues/order-status-dlq` – Clear the order-status dead-letter queue.
+
+Queue behaviour is controlled through environment variables:
+- `ORDER_CREATED_QUEUE` / `ORDER_CREATED_DLQ`
+- `ORDER_STATUS_QUEUE` / `ORDER_STATUS_DLQ`
+- `QUEUE_MAX_DELIVERIES` – maximum delivery attempts before a message is dead-lettered (defaults to `5`).
 
 ## Data Model
 
@@ -268,6 +277,7 @@ curl -i http://localhost:4000/v1/shipments \
 
 ```bash
 curl -s http://localhost:3000/debug/queues/order-created | jq
+curl -s http://localhost:3000/debug/queues/order-created-dlq | jq
 ```
 
 ### 10. Process the Order-Created Queue (Debug Worker)
@@ -280,6 +290,7 @@ curl -X POST http://localhost:3000/debug/queues/order-created/process | jq
 
 ```bash
 curl -s http://localhost:3000/debug/queues/order-status | jq
+curl -s http://localhost:3000/debug/queues/order-status-dlq | jq
 ```
 
 ### 12. Process the Order-Status Queue (Debug Worker)
@@ -292,12 +303,14 @@ curl -X POST http://localhost:3000/debug/queues/order-status/process | jq
 
 ```bash
 curl -X DELETE http://localhost:3000/debug/queues/order-created
+curl -X DELETE http://localhost:3000/debug/queues/order-created-dlq
 ```
 
 ### 14. Clear the Order-Status Queue (Debug)
 
 ```bash
 curl -X DELETE http://localhost:3000/debug/queues/order-status
+curl -X DELETE http://localhost:3000/debug/queues/order-status-dlq
 ```
 
 ## Deliverables

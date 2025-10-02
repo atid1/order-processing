@@ -3,7 +3,7 @@
 ## Implementation Rationale
 - **Fastify + TypeScript** – chosen for its performance-minded HTTP core, first-class schema validation, and excellent developer ergonomics with type safety. The lightweight plugin model keeps latency low while still letting us bolt on concerns like rate limiting and health probes without heavy middleware stacks.
 - **MongoDB** – document persistence matches the shape of an order aggregate and allows flexible enrichment (status history, shipment metadata) without complex joins. Built-in TTL/index tooling simplifies idempotency-key enforcement.
-- **Outbound queues + workers** – splitting create/status flows from shipment orchestration keeps the request path fast while enabling retries and eventual consistency. An in-memory SQS mock preserves the contract for future managed queue adoption.
+- **Outbound queues + workers** – splitting create/status flows from shipment orchestration keeps the request path fast while enabling retries and eventual consistency. An in-memory SQS mock preserves the contract for future managed queue adoption, and each queue now ships with a companion dead-letter queue (DLQ) that captures messages once they exceed the retry cap so failures stay observable.
 - **Delivery mock service** – provides deterministic integration testing and local dev feedback without needing real downstream dependencies. This mirrors the production contract through HTTP + idempotency headers.
 - **Rate limiting with optional Redis backing** – `@fastify/rate-limit` lets us enforce tenant or global throughput controls. Redis acts as a distributed counter store in deployments that need horizontal scaling; the in-memory fallback keeps setup simple for dev.
 
@@ -27,7 +27,8 @@
 - **DeliveryClient** – outbound HTTP client with exponential backoff + jitter retries for `POST /v1/shipments`.
 - **OutboundEventService** – publishes domain events (e.g., `ORDER_CREATED`) to a queue abstraction; defaults to an in-memory SQS mock for this exercise.
 - **Queue Consumers (debug)** – in-memory workers used during development/tests to drain both the order-created and status-update queues so shipment creation and status transitions happen off the request path.
-- **Debug Routes** – expose the in-memory queue store for inspection/maintenance (`GET /debug/queues/order-created`, `GET /debug/queues/order-status`, `DELETE /debug/queues/order-created`, `DELETE /debug/queues/order-status`) and simulate worker consumption (`POST /debug/queues/order-created/process`, `POST /debug/queues/order-status/process`).
+- **Dead-letter queues** – companion queues for order-created and order-status topics hold messages that exhausted `QUEUE_MAX_DELIVERIES` attempts. Operators can inspect/clear them via `/debug/queues/*-dlq` endpoints to decide whether to replay or drop poison messages.
+- **Debug Routes** – expose the in-memory queue store for inspection/maintenance (`GET /debug/queues/order-created`, `GET /debug/queues/order-created-dlq`, `GET /debug/queues/order-status`, `GET /debug/queues/order-status-dlq`, plus matching `DELETE` endpoints) and simulate worker consumption (`POST /debug/queues/order-created/process`, `POST /debug/queues/order-status/process`).
 - **Queue Workers (dev helper)** – optional in-process pollers enabled via `AUTO_CONSUME_STATUS_QUEUE=true` to automatically drain the order-created and status queues during local development.
 - **Delivery Mock** – lightweight Fastify application (separate container) returning deterministic shipment IDs for local/dev workflows.
 - **Rate Limit Plugin** – wraps `@fastify/rate-limit` to enforce global throttling and route-specific limits with structured logging; supports in-memory or Redis-backed counters.
@@ -150,7 +151,9 @@ Validated on boot via `env-schema`:
 - `PORT` / `HOST`
 - `MONGO_URI`, `MONGO_DB_NAME`
 - `DELIVERY_BASE_URL`, `DELIVERY_TIMEOUT_MS`, `DELIVERY_MAX_RETRIES`, `DELIVERY_RETRY_BASE_DELAY_MS`
-- `ORDER_CREATED_QUEUE`
+- `ORDER_CREATED_QUEUE`, `ORDER_CREATED_DLQ`
+- `ORDER_STATUS_QUEUE`, `ORDER_STATUS_DLQ`
+- `QUEUE_MAX_DELIVERIES`
 - `.env.example` documents required defaults. Invalid or missing values cause startup failure.
 
 ## Testing Strategy

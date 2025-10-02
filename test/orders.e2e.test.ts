@@ -27,6 +27,9 @@ describe('Sales Orders API', () => {
   const shipments: Array<{ orderId: string }> = [];
   const orderCreatedQueue = 'test-order-created';
   const orderStatusQueue = 'test-order-status';
+  const orderCreatedDlq = 'test-order-created-dlq';
+  const orderStatusDlq = 'test-order-status-dlq';
+  const queueMaxDeliveries = 3;
 
   beforeAll(async () => {
     // Spin up an in-memory Mongo instance so tests operate on an isolated database.
@@ -74,7 +77,10 @@ describe('Sales Orders API', () => {
       },
       events: {
         orderCreatedQueue,
-        orderStatusQueue
+        orderCreatedDeadLetterQueue: orderCreatedDlq,
+        orderStatusQueue,
+        orderStatusDeadLetterQueue: orderStatusDlq,
+        maxDeliveries: queueMaxDeliveries
       },
       rateLimit: {
         enabled: false, // Disable for main tests to avoid interference

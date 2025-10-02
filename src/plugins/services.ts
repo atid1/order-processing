@@ -32,6 +32,7 @@ const servicesPlugin = fp(async (fastify) => {
     orderCreatedQueue: fastify.config.events.orderCreatedQueue,
     orderStatusQueue: fastify.config.events.orderStatusQueue
   });
+  const maxDeliveries = fastify.config.events.maxDeliveries;
   const orderService = new OrderService(
     repository,
     deliveryClient,
@@ -44,12 +45,18 @@ const servicesPlugin = fp(async (fastify) => {
   const orderCreatedQueueConsumer = new InMemoryQueueConsumer(queueStore, async (message) => {
     const payload = message.payload as OrderCreatedQueuePayload;
     await orderService.handleOrderCreatedEvent(payload.orderId);
+  }, {
+    maxDeliveries,
+    deadLetterQueue: fastify.config.events.orderCreatedDeadLetterQueue
   });
 
   // Worker that applies Delivery status callbacks off the request path.
   const statusQueueConsumer = new InMemoryQueueConsumer(queueStore, async (message) => {
     const payload = message.payload as StatusUpdateQueuePayload;
     await orderService.applyStatusUpdate(payload.orderId, payload.event);
+  }, {
+    maxDeliveries,
+    deadLetterQueue: fastify.config.events.orderStatusDeadLetterQueue
   });
 
   fastify.decorate('mockQueueStore', queueStore);
